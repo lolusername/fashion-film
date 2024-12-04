@@ -1,19 +1,35 @@
 (() => {
     'use strict';
   
-    // Declare audioStream at the top level inside the IIFE
+    // At the very top of your IIFE, declare these ONCE:
     let audioStream = null;
     let audioContext, sourceNode, analyserNode;
+    let lastBeatTime = 0;
+    let chromaticStrength = 0;
+    let lastVideoTime = 0;
+    let currentTexture = null;
+    let isImageLoaded = false;
+    let mediaSizeLocation;
+    let isAudioInitialized = false;
+    let isAudioConnected = false;
+    let reconnectAttempts = 0;
+    let isSpaceMode = false;
+    let webcamStream = null;
+    let webcamVideo = null;
+    let startTime = null;
+    let audioFrequency = 0;
+    let isTimeMode = false;
+    let timeOffset = 0;
+    let timeOffsetLocation;
+    let lastFrameTexture = null;
+    let gl, program, videoTexture, webcamTexture;
+    let resolutionLocation;
+    let isSpaceModeLocation;
   
     // Add these variables at the top level inside the IIFE
-    let lastBeatTime = 0;
     const BEAT_THRESHOLD = 0.80;  // Higher threshold for only strong beats
     const MIN_BEAT_INTERVAL = 100;  // Shorter interval to allow quick changes on strong beats
     const CHROMATIC_THRESHOLD = 0.80;  // Medium-strong beats threshold
-    let chromaticStrength = 0;  // Will control the effect strength
-  
-    // Add at the top level inside the IIFE
-    let lastVideoTime = 0;
   
     // Add at the top level inside the IIFE
     const videoTimestamps = new Map(); // Stores the last timestamp for each video URL
@@ -21,18 +37,10 @@
     // Add at the top level of your IIFE
     let mediaSources = [];  // Add this line to store both video and image sources
   
-    // Add this variable at the top with your other declarations
-    let currentTexture = null; // Keep track of current texture source
-    let isImageLoaded = false;
-  
-    // Add these with your other global variables at the top
-    let mediaSizeLocation;
-  
     // Add these state tracking variables at the top (around line 5-7)
-    let isAudioInitialized = false;
-    let isAudioConnected = false;
-    let reconnectAttempts = 0;
     const MAX_RECONNECT_ATTEMPTS = 3;
+  
+    // Add these variables at the top with your other variables
   
     // Add this helper function to safely disconnect nodes
     function safeDisconnectNode(node) {
@@ -54,15 +62,17 @@
       video.muted = true;
       video.autoplay = true;
       video.playsInline = true;
-      video.style.display = 'none';
       document.body.appendChild(video);
+      
+      console.log('Created video element with src:', src);
+      
       return video;
     };
   
     // Main function to initialize and run the application
     const init = async () => {
       const canvas = document.getElementById('glCanvas');
-      const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+      gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
   
       if (!gl) {
         console.error('WebGL not supported');
@@ -208,119 +218,56 @@
   
       // Add shader sources here
       const vertexShaderSource = `
-          attribute vec4 a_position;
-          attribute vec2 a_texCoord;
+          attribute vec2 a_position;
+          varying vec2 v_texCoord;
           uniform vec2 u_resolution;
           uniform vec2 u_mediaSize;
-          varying vec2 v_texCoord;
+          uniform bool u_isSpaceMode;
 
           void main() {
-              float mediaAspect = u_mediaSize.x/u_mediaSize.y;
-              float screenAspect = u_resolution.x/u_resolution.y;
-              vec2 position = a_position.xy;
+              // Calculate aspect ratios
+              float viewportAspect = u_resolution.x / u_resolution.y;
+              float mediaAspect = u_mediaSize.x / u_mediaSize.y;
               
-              if (screenAspect > mediaAspect) {
-                  float scale = screenAspect / mediaAspect;
-                  position.x /= scale;
-              } else {
-                  float scale = mediaAspect / screenAspect;
-                  position.y /= scale;
+              vec2 scale;
+              if (u_isSpaceMode) {
+                  // In space mode, use half the viewport width
+                  viewportAspect *= 0.5;  // Half the viewport aspect
               }
               
-              gl_Position = vec4(position, 0.0, 1.0);
-              v_texCoord = a_texCoord;
+              // Scale to fit viewport while maintaining aspect ratio
+              if (mediaAspect > viewportAspect) {
+                  // Media is wider than viewport
+                  scale = vec2(1.0, 1.0 / mediaAspect * viewportAspect);
+              } else {
+                  // Media is taller than viewport
+                  scale = vec2(mediaAspect / viewportAspect, 1.0);
+              }
+              
+              gl_Position = vec4(a_position * scale, 0, 1);
+              v_texCoord = (a_position + 1.0) / 2.0;
           }
       `;
 
       const fragmentShaderSource = `
           precision mediump float;
-          
           uniform sampler2D u_videoTexture;
           uniform vec2 u_mouse;
           uniform float u_audioFreq;
+          uniform float u_timeOffset;
           uniform float u_chromaticStrength;
-          
+          uniform bool u_isSpaceMode;
           varying vec2 v_texCoord;
 
-          vec3 chromaticAberration(sampler2D tex, vec2 uv, float strength) {
-              float aberration = strength * 0.01;
-              
-              vec2 redOffset = vec2(aberration, 0.0);
-              vec2 greenOffset = vec2(0.0, 0.0);
-              vec2 blueOffset = vec2(-aberration, 0.0);
-              
-              float r = texture2D(tex, uv + redOffset).r;
-              float g = texture2D(tex, uv + greenOffset).g;
-              float b = texture2D(tex, uv + blueOffset).b;
-              
-              return vec3(r, g, b);
-          }
-
-          vec3 sophisticatedContrast(vec3 color, float contrastLevel) {
-              // Store original luminance
-              float luminance = dot(color, vec3(0.2126, 0.7152, 0.0722));
-              
-              // Basic contrast adjustment as foundation
-              float basicContrast = mix(0.6, 1.6, contrastLevel);
-              color = pow(color, vec3(basicContrast));
-              
-              // Professional Lift/Gamma/Gain on top
-              float lift = mix(-0.05, 0.02, contrastLevel);
-              float gamma = mix(1.1, 0.9, contrastLevel);
-              float gain = mix(0.95, 1.1, contrastLevel);
-              
-              // Apply LGG adjustments
-              color = pow(max(vec3(0.0), color + lift), vec3(1.0 / gamma)) * gain;
-              
-              // Cinematic highlight rolloff
-              float highlightCompress = mix(1.1, 0.9, contrastLevel);
-              vec3 highlights = smoothstep(0.7, 0.95, color);
-              color = mix(color, pow(color, vec3(highlightCompress)), highlights);
-              
-              // Natural saturation compensation
-              float saturationCompensation = mix(1.1, 0.9, contrastLevel);
-              vec3 desaturated = vec3(dot(color, vec3(0.2126, 0.7152, 0.0722)));
-              color = mix(desaturated, color, saturationCompensation);
-              
-              return color;
-          }
-
-          vec3 colorGrade(vec3 color, float temperature, float audioLevel) {
-              // Your existing color temperature controls
-              vec3 coolHighlights = vec3(0.85, 0.95, 1.15);
-              vec3 coolShadows = vec3(0.85, 0.95, 1.1);
-              vec3 warmHighlights = vec3(1.15, 0.95, 0.85);
-              vec3 warmShadows = vec3(1.1, 0.95, 0.85);
-              
-              float luminance = dot(color, vec3(0.2126, 0.7152, 0.0722));
-              
-              vec3 highlights = mix(
-                  coolHighlights,
-                  warmHighlights,
-                  smoothstep(0.2, 0.8, temperature)
-              );
-              
-              vec3 shadows = mix(
-                  coolShadows,
-                  warmShadows,
-                  smoothstep(0.2, 0.8, temperature)
-              );
-              
-              vec3 highlightAdjust = mix(vec3(1.0), highlights, smoothstep(0.4, 0.8, luminance));
-              vec3 shadowAdjust = mix(vec3(1.0), shadows, smoothstep(0.6, 0.2, luminance));
-              
-              color *= highlightAdjust * shadowAdjust;
-              
-              return color;
-          }
-
           void main() {
-              vec3 color = chromaticAberration(u_videoTexture, v_texCoord, u_chromaticStrength);
+              vec2 texCoord = v_texCoord;
               
-              color = colorGrade(color, u_mouse.x, u_audioFreq);
-              color = sophisticatedContrast(color, u_mouse.y);
+              if (u_isSpaceMode && gl_FragCoord.x > gl_FragCoord.y / 2.0) {
+                  discard;
+              }
               
-              gl_FragColor = vec4(color, 1.0);
+              vec4 videoColor = texture2D(u_videoTexture, texCoord);
+              gl_FragColor = videoColor;
           }
       `;
 
@@ -341,15 +288,22 @@
       const vertexShader = createShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
       const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource);
       
-      const program = gl.createProgram();
+      program = gl.createProgram();
       gl.attachShader(program, vertexShader);
       gl.attachShader(program, fragmentShader);
       gl.linkProgram(program);
-
+      
       if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-          console.error(gl.getProgramInfoLog(program));
+          console.error('Unable to initialize the shader program:', gl.getProgramInfoLog(program));
           return;
       }
+      
+      gl.useProgram(program);
+      
+      // Get uniform locations
+      isSpaceModeLocation = gl.getUniformLocation(program, 'u_isSpaceMode');
+      resolutionLocation = gl.getUniformLocation(program, 'u_resolution');
+      mediaSizeLocation = gl.getUniformLocation(program, 'u_mediaSize');
 
       // Set up buffers
       const positionBuffer = gl.createBuffer();
@@ -381,13 +335,14 @@
       const texCoordLocation = gl.getAttribLocation(program, 'a_texCoord');
 
       // Set up uniforms
-      const resolutionLocation = gl.getUniformLocation(program, 'u_resolution');
       const mouseLocation = gl.getUniformLocation(program, 'u_mouse');
       const timeLocation = gl.getUniformLocation(program, 'u_time');
       const audioFreqLocation = gl.getUniformLocation(program, 'u_audioFreq');
       const cursorSpeedLocation = gl.getUniformLocation(program, 'u_cursorSpeed');
       const oldFilmEffectLocation = gl.getUniformLocation(program, 'u_oldFilmEffect');
       const chromaticStrengthLocation = gl.getUniformLocation(program, 'u_chromaticStrength');
+      const timeOffsetLocation = gl.getUniformLocation(program, 'u_timeOffset');
+      const lastFrameTextureLocation = gl.getUniformLocation(program, 'u_lastFrameTexture');
 
       // Create and set up texture
       const videoTexture = gl.createTexture();
@@ -463,125 +418,76 @@
           }
       });
 
-      // Render loop
-      let startTime = null;
+      // Add at the top with your other variables
+      let audioFrequency = 0;  // Default value when no audio
+
+      // NOW define the render function
       const render = (timestamp) => {
           if (!startTime) startTime = timestamp;
-          const elapsedTime = (timestamp - startTime) / 1000;
-
-          gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
-          gl.clearColor(0, 0, 0, 1);
-          gl.clear(gl.COLOR_BUFFER_BIT);
-
-          gl.useProgram(program);
-
-          // Update attributes
-          gl.enableVertexAttribArray(positionLocation);
-          gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-          gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
-
-          gl.enableVertexAttribArray(texCoordLocation);
-          gl.bindBuffer(gl.ARRAY_BUFFER, texCoordBuffer);
-          gl.vertexAttribPointer(texCoordLocation, 2, gl.FLOAT, false, 0, 0);
-
-          // Update uniforms
-          gl.uniform2f(resolutionLocation, gl.canvas.width, gl.canvas.height);
-          gl.uniform2f(mouseLocation, mouse.x, mouse.y);
-          gl.uniform1f(timeLocation, elapsedTime);
-          gl.uniform1f(cursorSpeedLocation, mouse.velocity);
-          gl.uniform1i(oldFilmEffectLocation, oldFilmEffect);
-          gl.uniform1f(chromaticStrengthLocation, chromaticStrength);
-
-          // Update audio frequency data
-          if (analyserNode) {
-              const frequencyData = new Uint8Array(analyserNode.frequencyBinCount);
-              analyserNode.getByteFrequencyData(frequencyData);
-              
-              // Focus on bass and mid frequencies for better beat detection
-              let bassSum = 0;
-              let midSum = 0;
-              
-              // Bass frequencies (first few bins)
-              for (let i = 0; i < 4; i++) {
-                  bassSum += frequencyData[i];
-              }
-              
-              // Mid frequencies (next few bins)
-              for (let i = 4; i < 12; i++) {
-                  midSum += frequencyData[i];
-              }
-              
-              const bassAverage = bassSum / (4 * 255); // Normalize to 0-1
-              const midAverage = midSum / (8 * 255);  // Normalize to 0-1
-              
-              // Combined beat detection
-              const beatStrength = (bassAverage * 0.7) + (midAverage * 0.3);
-              gl.uniform1f(audioFreqLocation, beatStrength);
-
-              // Update chromatic aberration strength
-              if (beatStrength > CHROMATIC_THRESHOLD) {
-                  chromaticStrength = beatStrength;
-              } else {
-                  // Decay the effect
-                  chromaticStrength *= 0.9;
-              }
-              gl.uniform1f(chromaticStrengthLocation, chromaticStrength);
-
-              // Only switch on very strong beats
-              const currentTime = performance.now();
-              if (beatStrength > BEAT_THRESHOLD && 
-                  currentTime - lastBeatTime > MIN_BEAT_INTERVAL) {
-                  lastBeatTime = currentTime;
-                  
-                  const nextIndex = (currentVideoIndex + 1) % mediaSources.length;
-                  
-                  // Don't try to play if it's an image
-                  if (mediaSources[nextIndex].type === 'image') {
-                      loadMedia(nextIndex);
-                  } else {
-                      loadMedia(nextIndex);
-                  }
-              }
+          
+          // Set viewport based on mode
+          if (isSpaceMode) {
+              gl.viewport(0, 0, gl.canvas.width / 2, gl.canvas.height);
+          } else {
+              gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
           }
-
-          // Only update texture from video if current media is video and video is ready
+          
+          gl.clear(gl.COLOR_BUFFER_BIT);
+          
+          // Update uniforms
+          gl.uniform2f(resolutionLocation, isSpaceMode ? gl.canvas.width / 2 : gl.canvas.width, gl.canvas.height);
+          gl.uniform1i(isSpaceModeLocation, isSpaceMode ? 1 : 0);
+          
+          if (video.readyState >= video.HAVE_METADATA) {
+              gl.uniform2f(mediaSizeLocation, video.videoWidth, video.videoHeight);
+          }
+          
+          // Draw
           if (mediaSources[currentVideoIndex]?.type === 'video' && video.readyState >= video.HAVE_CURRENT_DATA) {
               gl.bindTexture(gl.TEXTURE_2D, videoTexture);
               gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);
           }
-
-          // Draw
+          
           gl.drawArrays(gl.TRIANGLES, 0, 6);
-
           requestAnimationFrame(render);
       };
 
-      // Modified video canplay listener
-      video.addEventListener('canplay', async () => {
-          if (!audioContext) {
-              await initAudio();
-          }
+      // Start render loop
+      requestAnimationFrame(render);
+
+      // Update the video canplay listener to only init audio after user interaction
+      video.addEventListener('canplay', () => {
           requestAnimationFrame(render);
       });
 
       // Add this event listener after your other event listeners
       window.addEventListener('keydown', (e) => {
+          console.log('Key pressed:', e.code); // Debug log
+          
           // Only allow arrow key controls when not connected to audio
           if (!audioStream) {
+              console.log('No audio stream, should change video'); // Debug log
               let newIndex;
               switch(e.code) {
                   case 'ArrowRight':
                   case 'ArrowDown':
+                      console.log('Current index:', currentVideoIndex); // Debug log
+                      console.log('Media sources:', mediaSources); // Debug log
                       newIndex = (currentVideoIndex + 1) % mediaSources.length;
+                      console.log('New index:', newIndex); // Debug log
                       loadMedia(newIndex);
                       break;
                       
                   case 'ArrowLeft':
                   case 'ArrowUp':
+                      console.log('Current index:', currentVideoIndex); // Debug log
                       newIndex = (currentVideoIndex - 1 + mediaSources.length) % mediaSources.length;
+                      console.log('New index:', newIndex); // Debug log
                       loadMedia(newIndex);
                       break;
               }
+          } else {
+              console.log('Audio stream connected, ignoring arrow keys'); // Debug log
           }
       });
 
@@ -687,99 +593,60 @@
 
       // Update the loadMedia function
       function loadMedia(index) {
-          if (!mediaSources || !mediaSources.length) {
-              console.warn('No media sources available');
-              return;
-          }
-
+          console.log('Loading media at index:', index);
           const media = mediaSources[index];
-          isImageLoaded = false;
-          
-          try {
-              if (media.type === 'video') {
-                  // Save current video timestamp before switching
-                  if (video.src) {
-                      const currentFileName = video.src.split('/').pop();  // Get just the filename
-                      videoTimestamps.set(
-                          currentFileName, 
-                          video.currentTime / video.duration
-                      );
-                  }
-                  
-                  // Reset video element
-                  video.pause();
-                  
-                  // Set new source
-                  video.src = media.url;
-                  video.style.display = 'block';
-                  currentTexture = video;
-                  
-                  // Set up video event listeners
-                  video.onloadeddata = () => {
+          console.log('Media to load:', media);
+          currentVideoIndex = index;
+
+          if (media.type === 'video') {
+              video.pause();
+              video.src = media.url;
+              video.load();
+              console.log('Video element:', video);
+              console.log('Video src set to:', media.url);
+              
+              video.onloadeddata = () => {
+                  console.log('Video loaded data');
+                  isImageLoaded = true;
+                  gl.uniform2f(mediaSizeLocation, video.videoWidth, video.videoHeight);
+                  video.play().catch(e => console.error('Video play error:', e));
+              };
+          } else if (media.type === 'image') {
+              // For images
+              video.pause();
+              video.src = '';
+              video.load();
+              video.style.display = 'none';
+              
+              const img = new Image();
+              img.crossOrigin = 'anonymous';
+              
+              img.onerror = (err) => {
+                  console.error('Error loading image:', err);
+                  isImageLoaded = false;
+              };
+              
+              img.onload = () => {
+                  try {
                       isImageLoaded = true;
-                      
-                      // Restore timestamp if it exists
-                      const newFileName = media.url.split('/').pop();
-                      const savedTimePercentage = videoTimestamps.get(newFileName);
-                      
-                      // Initialize texture first
-                      gl.uniform2f(mediaSizeLocation, video.videoWidth, video.videoHeight);
+                      currentTexture = img;
+                      gl.useProgram(program);
+                      gl.uniform2f(mediaSizeLocation, img.naturalWidth, img.naturalHeight);
                       gl.bindTexture(gl.TEXTURE_2D, videoTexture);
-                      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);
+                      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
                       
+                      // Set texture parameters
                       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
                       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
                       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
                       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-                      
-                      // Set time and play after texture is initialized
-                      if (savedTimePercentage !== undefined) {
-                          video.currentTime = savedTimePercentage * video.duration;
-                      }
-                      
-                      video.play().catch(console.error);
-                  };
-              } else if (media.type === 'image') {
-                  // For images
-                  video.pause();
-                  video.src = '';
-                  video.load();
-                  video.style.display = 'none';
-                  
-                  const img = new Image();
-                  img.crossOrigin = 'anonymous';
-                  
-                  img.onerror = (err) => {
-                      console.error('Error loading image:', err);
+                  } catch (err) {
+                      console.error('Error binding image to texture:', err);
                       isImageLoaded = false;
-                  };
-                  
-                  img.onload = () => {
-                      try {
-                          isImageLoaded = true;
-                          currentTexture = img;
-                          gl.useProgram(program);
-                          gl.uniform2f(mediaSizeLocation, img.naturalWidth, img.naturalHeight);
-                          gl.bindTexture(gl.TEXTURE_2D, videoTexture);
-                          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
-                          
-                          // Set texture parameters
-                          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-                          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-                          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-                          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-                      } catch (err) {
-                          console.error('Error binding image to texture:', err);
-                          isImageLoaded = false;
-                      }
-                  };
-                  
-                  img.src = media.url;
-              }
+                  }
+              };
               
-              currentVideoIndex = index;
-          } catch (err) {
-              console.error('Error in loadMedia:', err);
+              img.src = media.url;
           }
       }
 
@@ -801,11 +668,176 @@
 
       // Make sure video is ready to seek
       video.preload = 'auto';
-
-      // After creating and linking your shader program, add this line
-      mediaSizeLocation = gl.getUniformLocation(program, 'u_mediaSize');
     };
   
     // Run the application
     window.addEventListener('load', init);
+
+    // Add these right after your init() function
+    document.addEventListener('DOMContentLoaded', () => {
+        console.log('Setting up event listeners');
+        
+        document.getElementById('remixSpace').addEventListener('click', async () => {
+            console.log('Remix Space clicked');
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                webcamStream = stream;
+                webcamVideo = document.getElementById('webcamVideo');
+                webcamVideo.srcObject = stream;
+                
+                // Show webcam
+                webcamVideo.style.display = 'block';
+                document.querySelector('.mode-selection').style.display = 'none';
+                document.getElementById('webcamContainer').style.display = 'block';
+                
+                // Force canvas to half width
+                const glCanvas = document.getElementById('glCanvas');
+                glCanvas.style.width = '50%';
+                glCanvas.width = window.innerWidth / 2;
+                gl.viewport(0, 0, glCanvas.width, glCanvas.height);
+                
+                isSpaceMode = true;
+                
+            } catch (err) {
+                console.error('Webcam error:', err);
+            }
+        });
+
+        document.getElementById('remixTime').addEventListener('click', async () => {
+            console.log('Remix Time clicked');
+            document.querySelector('.mode-selection').style.display = 'none';
+            
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                webcamStream = stream;
+                webcamVideo = document.getElementById('webcamVideo');
+                webcamVideo.srcObject = stream;
+                
+                // Show the webcam video
+                webcamVideo.style.display = 'block';
+                document.getElementById('webcamContainer').style.display = 'block';
+                document.getElementById('webcamContainer').style.width = '100%';
+                document.getElementById('webcamContainer').style.position = 'fixed';
+                document.getElementById('webcamContainer').style.zIndex = '2';
+                
+                const glCanvas = document.getElementById('glCanvas');
+                glCanvas.style.width = '100%';
+                isTimeMode = true;
+                
+                // Start the opacity animation
+                startTimeOverlay();
+            } catch (err) {
+                console.error('Webcam error:', err);
+            }
+        });
+    });
+
+    // Add window resize handler
+    window.addEventListener('resize', () => {
+        const glCanvas = document.getElementById('glCanvas');
+        if (glCanvas) {
+            glCanvas.width = window.innerWidth;
+            glCanvas.height = window.innerHeight;
+            if (isSpaceMode) {
+                gl.viewport(0, 0, glCanvas.width / 2, glCanvas.height);
+            } else {
+                gl.viewport(0, 0, glCanvas.width, glCanvas.height);
+            }
+        }
+    });
+
+    // Add this function to handle the temporal overlay
+    function startTimeOverlay() {
+        let startTime = performance.now();
+        let randomOffset = 0;
+
+        function updateOpacity() {
+            if (!isTimeMode) return;
+            
+            const time = performance.now() - startTime;
+            // Slower, more ethereal oscillation
+            const base = Math.sin(time * 0.0002 * Math.PI / 2); // Even slower cycle
+            const secondary = Math.cos(time * 0.0001 * Math.PI / 2); // Secondary wave
+            
+            // Create a dreamy compound wave
+            const dreamyWave = (base * 0.7 + secondary * 0.3);
+            
+            // Add subtle random variation for organic feel
+            if (base < -0.95) randomOffset = Math.random() * 0.15;
+            
+            // Softer opacity range for dreamier look
+            const opacity = Math.max(0.1, Math.min(0.75, (dreamyWave + 1) * 0.35 + randomOffset));
+            
+            if (webcamVideo && document.getElementById('webcamContainer')) {
+                const container = document.getElementById('webcamContainer');
+                container.style.opacity = opacity.toString();
+                // Dreamy blend modes that cycle
+                const blendModes = ['soft-light', 'overlay', 'screen'];
+                const blendIndex = Math.floor((time * 0.001) % blendModes.length);
+                container.style.mixBlendMode = blendModes[blendIndex];
+                
+                // Add a subtle blur that varies with the opacity
+                const blurAmount = (1 - opacity) * 5;
+                container.style.filter = `blur(${blurAmount}px) brightness(1.1)`;
+                
+                // Add subtle scale animation
+                const scale = 1 + Math.sin(time * 0.0003) * 0.05;
+                webcamVideo.style.transform = `scaleX(-1) scale(${scale})`;
+                webcamVideo.style.transition = 'transform 0.5s ease-out';
+            }
+            
+            requestAnimationFrame(updateOpacity);
+        }
+
+        requestAnimationFrame(updateOpacity);
+    }
+
+    // Add this new function for space mode effects
+    function startSpaceOverlay() {
+        let startTime = performance.now();
+        let randomOffset = 0;
+
+        function updateDyptich() {
+            if (!isSpaceMode) return;
+            
+            const time = performance.now() - startTime;
+            const base = Math.sin(time * 0.0002 * Math.PI / 2);
+            const secondary = Math.cos(time * 0.0001 * Math.PI / 2);
+            
+            // Create dreamy compound wave
+            const dreamyWave = (base * 0.7 + secondary * 0.3);
+            
+            if (base < -0.95) randomOffset = Math.random() * 0.15;
+            
+            const opacity = Math.max(0.1, Math.min(0.75, (dreamyWave + 1) * 0.35 + randomOffset));
+            
+            if (webcamVideo && document.getElementById('webcamContainer')) {
+                const container = document.getElementById('webcamContainer');
+                container.style.opacity = opacity.toString();
+                
+                // Cycle through blend modes
+                const blendModes = ['soft-light', 'overlay', 'screen'];
+                const blendIndex = Math.floor((time * 0.001) % blendModes.length);
+                container.style.mixBlendMode = blendModes[blendIndex];
+                
+                // Dynamic blur effect
+                const blurAmount = (1 - opacity) * 5;
+                container.style.filter = `blur(${blurAmount}px) brightness(1.1)`;
+                
+                // Subtle scale breathing animation
+                const scale = 1 + Math.sin(time * 0.0003) * 0.05;
+                webcamVideo.style.transform = `scaleX(-1) scale(${scale})`;
+                webcamVideo.style.transition = 'transform 0.5s ease-out';
+                
+                // Add subtle position drift
+                const drift = Math.sin(time * 0.0001) * 2;
+                container.style.transform = `translateX(${drift}px)`;
+                container.style.transition = 'transform 1s ease-out';
+            }
+            
+            requestAnimationFrame(updateDyptich);
+        }
+
+        requestAnimationFrame(updateDyptich);
+    }
   })();
