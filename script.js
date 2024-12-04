@@ -116,10 +116,10 @@
   
       // Video sources array
       let videoSources = [
-          'vid/C0008.MP4_Rendered_001.mp4', 
+          'vid/C0022.MP4_Rendered_001.mp4', 
           'vid/C0016.MP4_Rendered_001.mp4', 
           'vid/C0014.MP4_Rendered_001.mp4', 
-          'vid/C0022.MP4_Rendered_001.mp4'
+          'vid/C0008.MP4_Rendered_001.mp4'
       ];
 
       // Initialize mediaSources with the default videos
@@ -1120,56 +1120,78 @@
     function handleDrag(e) {
         if (!isDragging || !isSpaceMode) return;
         
-        dividerPosition = (e.clientX / window.innerWidth) * 100;
-        dividerPosition = Math.max(20, Math.min(80, dividerPosition));
+        const isPortrait = window.innerHeight > window.innerWidth;
+        const position = isPortrait ? 
+            (e.type.includes('touch') ? e.touches[0].clientY : e.clientY) : 
+            (e.type.includes('touch') ? e.touches[0].clientX : e.clientX);
         
-        const glCanvas = document.getElementById('glCanvas');
-        const divider = document.getElementById('videosDivider');
-        const webcamContainer = document.getElementById('webcamContainer');
-        
-        // Update WebGL canvas
-        glCanvas.style.width = `${dividerPosition}%`;
-        glCanvas.width = Math.floor(window.innerWidth * (dividerPosition / 100));
-        gl.viewport(0, 0, glCanvas.width, glCanvas.height);
-        
-        // Update webcam container
-        webcamContainer.style.width = `${100 - dividerPosition}%`;
-        
-        // Update divider position
-        divider.style.left = `${dividerPosition}%`;
+        if (isPortrait) {
+            dividerPosition = (position / window.innerHeight) * 100;
+            dividerPosition = Math.max(20, Math.min(80, dividerPosition));
+            
+            const glCanvas = document.getElementById('glCanvas');
+            const divider = document.getElementById('videosDivider');
+            const webcamContainer = document.getElementById('webcamContainer');
+            
+            // Update for vertical layout
+            glCanvas.style.height = `${dividerPosition}%`;
+            webcamContainer.style.height = `${100 - dividerPosition}%`;
+            webcamContainer.style.top = `${dividerPosition}%`;
+            divider.style.top = `${dividerPosition}%`;
+        } else {
+            // Existing horizontal layout code
+            dividerPosition = (position / window.innerWidth) * 100;
+            dividerPosition = Math.max(20, Math.min(80, dividerPosition));
+            
+            const glCanvas = document.getElementById('glCanvas');
+            const divider = document.getElementById('videosDivider');
+            const webcamContainer = document.getElementById('webcamContainer');
+            
+            glCanvas.style.width = `${dividerPosition}%`;
+            webcamContainer.style.width = `${100 - dividerPosition}%`;
+            divider.style.left = `${dividerPosition}%`;
+        }
     }
 
-    // Add these event listeners at the document level
-    document.addEventListener('mousedown', (e) => {
+    // Add touch event listeners
+    document.addEventListener('touchstart', (e) => {
         if (e.target.id === 'videosDivider') {
             isDragging = true;
         }
     });
 
-    document.addEventListener('mousemove', (e) => {
-        if (!isDragging || !isSpaceMode) return;
-        
-        dividerPosition = (e.clientX / window.innerWidth) * 100;
-        dividerPosition = Math.max(20, Math.min(80, dividerPosition));
-        
-        const glCanvas = document.getElementById('glCanvas');
-        const divider = document.getElementById('videosDivider');
-        const webcamContainer = document.getElementById('webcamContainer');
-        
-        // Update WebGL canvas
-        glCanvas.style.width = `${dividerPosition}%`;
-        glCanvas.width = Math.floor(window.innerWidth * (dividerPosition / 100));
-        gl.viewport(0, 0, glCanvas.width, glCanvas.height);
-        
-        // Update webcam container
-        webcamContainer.style.width = `${100 - dividerPosition}%`;
-        
-        // Update divider position
-        divider.style.left = `${dividerPosition}%`;
+    document.addEventListener('touchmove', (e) => {
+        e.preventDefault(); // Prevent scrolling while dragging
+        handleDrag(e);
+    }, { passive: false });
+
+    document.addEventListener('touchend', () => {
+        isDragging = false;
     });
 
-    document.addEventListener('mouseup', () => {
-        isDragging = false;
+    // Update resize handler
+    window.addEventListener('resize', () => {
+        const isPortrait = window.innerHeight > window.innerWidth;
+        const glCanvas = document.getElementById('glCanvas');
+        const webcamContainer = document.getElementById('webcamContainer');
+        const divider = document.getElementById('videosDivider');
+        
+        if (isPortrait) {
+            glCanvas.style.width = '100%';
+            glCanvas.style.height = '50%';
+            webcamContainer.style.width = '100%';
+            webcamContainer.style.height = '50%';
+            webcamContainer.style.top = '50%';
+            divider.style.top = '50%';
+            divider.style.left = '0';
+        } else {
+            glCanvas.style.width = '50%';
+            glCanvas.style.height = '100%';
+            webcamContainer.style.width = '50%';
+            webcamContainer.style.height = '100%';
+            webcamContainer.style.top = '0';
+            divider.style.left = '50%';
+        }
     });
 
     // Add this function
