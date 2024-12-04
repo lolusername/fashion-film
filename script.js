@@ -1,6 +1,12 @@
 (() => {
     'use strict';
   
+    // Add these at the very top of your IIFE
+    let isDragging = false;
+    let dividerPosition = 50; // Start at 50%
+    let isSpaceMode = false;
+    let isTimeMode = false;
+  
     // At the very top of your IIFE, declare these ONCE:
     let audioStream = null;
     let audioContext, sourceNode, analyserNode;
@@ -13,12 +19,10 @@
     let isAudioInitialized = false;
     let isAudioConnected = false;
     let reconnectAttempts = 0;
-    let isSpaceMode = false;
     let webcamStream = null;
     let webcamVideo = null;
     let startTime = null;
     let audioFrequency = 0;
-    let isTimeMode = false;
     let timeOffset = 0;
     let timeOffsetLocation;
     let lastFrameTexture = null;
@@ -677,7 +681,7 @@
     document.addEventListener('DOMContentLoaded', () => {
         console.log('Setting up event listeners');
         
-        // Add at the top of your IIFE with other variables
+        // Add these two lines right after console.log('Setting up event listeners');
         let isDragging = false;
         let dividerPosition = 50; // Start at 50%
 
@@ -718,9 +722,37 @@
             </div>
         `);
 
-        // Update remixSpace click handler
-        document.getElementById('remixSpace').addEventListener('click', async () => {
-            console.log('Remix Space clicked');
+        // Add this HTML for the space mode options
+        document.body.insertAdjacentHTML('beforeend', `
+            <div id="spaceOptions" style="
+                display: none;
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: rgba(0,0,0,0.9);
+                color: white;
+                padding: 30px;
+                border-radius: 15px;
+                font-family: 'Bodoni Moda', serif;
+                z-index: 101;
+                text-align: center;
+            ">
+                <h3 style="margin: 0 0 20px 0; letter-spacing: 2px;">CHOOSE SPACE SOURCE</h3>
+                <button id="useWebcamSpace" class="mode-btn" style="margin: 10px;">USE WEBCAM</button>
+                <button id="uploadVideoSpace" class="mode-btn" style="margin: 10px;">UPLOAD VIDEO</button>
+                <input type="file" id="spaceVideoUpload" accept="video/*" style="display: none;">
+            </div>
+        `);
+
+        // Update the remixSpace click handler
+        document.getElementById('remixSpace').addEventListener('click', () => {
+            document.getElementById('spaceOptions').style.display = 'block';
+            document.querySelector('.mode-selection').style.display = 'none';
+        });
+
+        // Add handlers for the new buttons
+        document.getElementById('useWebcamSpace').addEventListener('click', async () => {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ video: true });
                 webcamStream = stream;
@@ -731,7 +763,7 @@
                 webcamVideo.style.display = 'block';
                 document.getElementById('webcamContainer').style.display = 'block';
                 document.getElementById('videosDivider').style.display = 'block';
-                document.querySelector('.mode-selection').style.display = 'none';
+                document.getElementById('spaceOptions').style.display = 'none';
                 
                 // Setup drag handlers
                 document.getElementById('videosDivider').addEventListener('mousedown', startDragging);
@@ -740,7 +772,7 @@
                 
                 isSpaceMode = true;
                 
-                // Add this to your remixSpace click handler after showing the divider
+                // Show drag guide
                 const dragGuide = document.getElementById('dragGuide');
                 dragGuide.style.display = 'block';
                 setTimeout(() => {
@@ -752,16 +784,59 @@
                         }, 500);
                     }, 2000);
                 }, 100);
+                
             } catch (err) {
                 console.error('Webcam error:', err);
             }
         });
 
-        function startDragging() {
-            isDragging = true;
-        }
+        document.getElementById('uploadVideoSpace').addEventListener('click', () => {
+            document.getElementById('spaceVideoUpload').click();
+        });
 
-        function handleDrag(e) {
+        document.getElementById('spaceVideoUpload').addEventListener('change', (e) => {
+            if (e.target.files && e.target.files[0]) {
+                const file = e.target.files[0];
+                const url = URL.createObjectURL(file);
+                
+                webcamVideo = document.getElementById('webcamVideo');
+                webcamVideo.src = url;
+                webcamVideo.style.display = 'block';
+                document.getElementById('webcamContainer').style.display = 'block';
+                document.getElementById('videosDivider').style.display = 'block';
+                document.getElementById('spaceOptions').style.display = 'none';
+                
+                // Setup drag handlers
+                document.getElementById('videosDivider').addEventListener('mousedown', startDragging);
+                document.addEventListener('mousemove', handleDrag);
+                document.addEventListener('mouseup', () => isDragging = false);
+                
+                isSpaceMode = true;
+                
+                // Show drag guide
+                const dragGuide = document.getElementById('dragGuide');
+                dragGuide.style.display = 'block';
+                setTimeout(() => {
+                    dragGuide.style.opacity = '1';
+                    setTimeout(() => {
+                        dragGuide.style.opacity = '0';
+                        setTimeout(() => {
+                            dragGuide.style.display = 'none';
+                        }, 500);
+                    }, 2000);
+                }, 100);
+            }
+        });
+
+        // Add these inside your existing DOMContentLoaded event handler, 
+        // right after console.log('Setting up event listeners');
+        document.addEventListener('mousedown', (e) => {
+            if (e.target.id === 'videosDivider') {
+                isDragging = true;
+            }
+        });
+
+        document.addEventListener('mousemove', (e) => {
             if (!isDragging || !isSpaceMode) return;
             
             dividerPosition = (e.clientX / window.innerWidth) * 100;
@@ -781,33 +856,81 @@
             
             // Update divider position
             divider.style.left = `${dividerPosition}%`;
-        }
+        });
 
-        document.getElementById('remixTime').addEventListener('click', async () => {
-            console.log('Remix Time clicked');
+        document.addEventListener('mouseup', () => {
+            isDragging = false;
+        });
+
+        // Add this HTML for the time mode options (add near line 726)
+        document.body.insertAdjacentHTML('beforeend', `
+            <div id="timeOptions" style="
+                display: none;
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: rgba(0,0,0,0.9);
+                color: white;
+                padding: 30px;
+                border-radius: 15px;
+                font-family: 'Bodoni Moda', serif;
+                z-index: 101;
+                text-align: center;
+            ">
+                <h3 style="margin: 0 0 20px 0; letter-spacing: 2px;">CHOOSE TIME SOURCE</h3>
+                <button id="useWebcamTime" class="mode-btn" style="margin: 10px;">USE WEBCAM</button>
+                <button id="uploadVideoTime" class="mode-btn" style="margin: 10px;">UPLOAD VIDEO</button>
+                <input type="file" id="timeVideoUpload" accept="video/*" style="display: none;">
+            </div>
+        `);
+
+        // Modify the remixTime click handler (around line 866)
+        document.getElementById('remixTime').addEventListener('click', () => {
+            document.getElementById('timeOptions').style.display = 'block';
             document.querySelector('.mode-selection').style.display = 'none';
-            
+        });
+
+        // Add handlers for time mode options
+        document.getElementById('useWebcamTime').addEventListener('click', async () => {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ video: true });
                 webcamStream = stream;
                 webcamVideo = document.getElementById('webcamVideo');
                 webcamVideo.srcObject = stream;
-                
-                // Show the webcam video
                 webcamVideo.style.display = 'block';
                 document.getElementById('webcamContainer').style.display = 'block';
-                document.getElementById('webcamContainer').style.width = '100%';
-                document.getElementById('webcamContainer').style.position = 'fixed';
-                document.getElementById('webcamContainer').style.zIndex = '2';
+                document.getElementById('timeOptions').style.display = 'none';
                 
-                const glCanvas = document.getElementById('glCanvas');
-                glCanvas.style.width = '100%';
                 isTimeMode = true;
+                isSpaceMode = false;
                 
-                // Start the opacity animation
                 startTimeOverlay();
+                
             } catch (err) {
                 console.error('Webcam error:', err);
+            }
+        });
+
+        document.getElementById('uploadVideoTime').addEventListener('click', () => {
+            document.getElementById('timeVideoUpload').click();
+        });
+
+        document.getElementById('timeVideoUpload').addEventListener('change', (e) => {
+            if (e.target.files && e.target.files[0]) {
+                const file = e.target.files[0];
+                const url = URL.createObjectURL(file);
+                
+                webcamVideo = document.getElementById('webcamVideo');
+                webcamVideo.src = url;
+                webcamVideo.style.display = 'block';
+                document.getElementById('webcamContainer').style.display = 'block';
+                document.getElementById('timeOptions').style.display = 'none';
+                
+                isTimeMode = true;
+                isSpaceMode = false;
+                
+                startTimeOverlay();
             }
         });
     });
@@ -920,4 +1043,63 @@
 
         requestAnimationFrame(updateDyptich);
     }
+
+    function startDragging() {
+        isDragging = true;
+    }
+
+    function handleDrag(e) {
+        if (!isDragging || !isSpaceMode) return;
+        
+        dividerPosition = (e.clientX / window.innerWidth) * 100;
+        dividerPosition = Math.max(20, Math.min(80, dividerPosition));
+        
+        const glCanvas = document.getElementById('glCanvas');
+        const divider = document.getElementById('videosDivider');
+        const webcamContainer = document.getElementById('webcamContainer');
+        
+        // Update WebGL canvas
+        glCanvas.style.width = `${dividerPosition}%`;
+        glCanvas.width = Math.floor(window.innerWidth * (dividerPosition / 100));
+        gl.viewport(0, 0, glCanvas.width, glCanvas.height);
+        
+        // Update webcam container
+        webcamContainer.style.width = `${100 - dividerPosition}%`;
+        
+        // Update divider position
+        divider.style.left = `${dividerPosition}%`;
+    }
+
+    // Add these event listeners at the document level
+    document.addEventListener('mousedown', (e) => {
+        if (e.target.id === 'videosDivider') {
+            isDragging = true;
+        }
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (!isDragging || !isSpaceMode) return;
+        
+        dividerPosition = (e.clientX / window.innerWidth) * 100;
+        dividerPosition = Math.max(20, Math.min(80, dividerPosition));
+        
+        const glCanvas = document.getElementById('glCanvas');
+        const divider = document.getElementById('videosDivider');
+        const webcamContainer = document.getElementById('webcamContainer');
+        
+        // Update WebGL canvas
+        glCanvas.style.width = `${dividerPosition}%`;
+        glCanvas.width = Math.floor(window.innerWidth * (dividerPosition / 100));
+        gl.viewport(0, 0, glCanvas.width, glCanvas.height);
+        
+        // Update webcam container
+        webcamContainer.style.width = `${100 - dividerPosition}%`;
+        
+        // Update divider position
+        divider.style.left = `${dividerPosition}%`;
+    });
+
+    document.addEventListener('mouseup', () => {
+        isDragging = false;
+    });
   })();
