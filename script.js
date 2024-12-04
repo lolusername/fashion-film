@@ -954,45 +954,55 @@
         let startTime = performance.now();
         let randomOffset = 0;
 
-        function updateOpacity() {
+        function updateTimeEffect() {
             if (!isTimeMode) return;
             
             const time = performance.now() - startTime;
-            // Slower, more ethereal oscillation
-            const base = Math.sin(time * 0.0002 * Math.PI / 2); // Even slower cycle
-            const secondary = Math.cos(time * 0.0001 * Math.PI / 2); // Secondary wave
+            const base = Math.sin(time * 0.0002 * Math.PI / 2);
+            const secondary = Math.cos(time * 0.0001 * Math.PI / 2);
             
-            // Create a dreamy compound wave
+            // Create dreamy compound wave
             const dreamyWave = (base * 0.7 + secondary * 0.3);
             
-            // Add subtle random variation for organic feel
             if (base < -0.95) randomOffset = Math.random() * 0.15;
             
-            // Softer opacity range for dreamier look
             const opacity = Math.max(0.1, Math.min(0.75, (dreamyWave + 1) * 0.35 + randomOffset));
             
             if (webcamVideo && document.getElementById('webcamContainer')) {
                 const container = document.getElementById('webcamContainer');
+                container.style.width = '100%';
+                container.style.height = '100%';
+                container.style.right = '0';
                 container.style.opacity = opacity.toString();
-                // Dreamy blend modes that cycle
+                
+                // Cycle through blend modes
                 const blendModes = ['soft-light', 'overlay', 'screen'];
                 const blendIndex = Math.floor((time * 0.001) % blendModes.length);
                 container.style.mixBlendMode = blendModes[blendIndex];
                 
-                // Add a subtle blur that varies with the opacity
+                // Dynamic blur effect
                 const blurAmount = (1 - opacity) * 5;
                 container.style.filter = `blur(${blurAmount}px) brightness(1.1)`;
                 
-                // Add subtle scale animation
+                // Subtle scale breathing animation
                 const scale = 1 + Math.sin(time * 0.0003) * 0.05;
                 webcamVideo.style.transform = `scaleX(-1) scale(${scale})`;
                 webcamVideo.style.transition = 'transform 0.5s ease-out';
+                
+                // Add subtle position drift
+                const drift = Math.sin(time * 0.0001) * 2;
+                container.style.transform = `translateX(${drift}px)`;
+                container.style.transition = 'transform 1s ease-out';
+                
+                // Hide the divider in time mode
+                const divider = document.getElementById('videosDivider');
+                if (divider) divider.style.display = 'none';
             }
             
-            requestAnimationFrame(updateOpacity);
+            requestAnimationFrame(updateTimeEffect);
         }
 
-        requestAnimationFrame(updateOpacity);
+        requestAnimationFrame(updateTimeEffect);
     }
 
     // Add this new function for space mode effects
