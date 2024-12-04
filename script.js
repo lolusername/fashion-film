@@ -677,6 +677,48 @@
     document.addEventListener('DOMContentLoaded', () => {
         console.log('Setting up event listeners');
         
+        // Add at the top of your IIFE with other variables
+        let isDragging = false;
+        let dividerPosition = 50; // Start at 50%
+
+        // Add divider element
+        document.body.insertAdjacentHTML('beforeend', `
+            <div id="videosDivider" style="
+                display: none;
+                position: fixed;
+                top: 0;
+                left: 50%;
+                width: 4px;
+                height: 100vh;
+                background: rgba(255, 255, 255, 0.5);
+                cursor: ew-resize;
+                z-index: 100;
+            "></div>
+        `);
+
+        // Add this HTML after the divider is created
+        document.body.insertAdjacentHTML('beforeend', `
+            <div id="dragGuide" style="
+                display: none;
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: rgba(0,0,0,0.7);
+                color: white;
+                padding: 15px 25px;
+                border-radius: 25px;
+                font-family: 'Bodoni Moda', serif;
+                letter-spacing: 2px;
+                z-index: 101;
+                opacity: 0;
+                transition: opacity 0.5s ease;
+            ">
+                drag to adjust split
+            </div>
+        `);
+
+        // Update remixSpace click handler
         document.getElementById('remixSpace').addEventListener('click', async () => {
             console.log('Remix Space clicked');
             try {
@@ -685,23 +727,61 @@
                 webcamVideo = document.getElementById('webcamVideo');
                 webcamVideo.srcObject = stream;
                 
-                // Show webcam
+                // Show webcam and divider
                 webcamVideo.style.display = 'block';
-                document.querySelector('.mode-selection').style.display = 'none';
                 document.getElementById('webcamContainer').style.display = 'block';
+                document.getElementById('videosDivider').style.display = 'block';
+                document.querySelector('.mode-selection').style.display = 'none';
                 
-                // Force canvas to half width
-                const glCanvas = document.getElementById('glCanvas');
-                glCanvas.style.width = '50%';
-                glCanvas.width = window.innerWidth / 2;
-                gl.viewport(0, 0, glCanvas.width, glCanvas.height);
+                // Setup drag handlers
+                document.getElementById('videosDivider').addEventListener('mousedown', startDragging);
+                document.addEventListener('mousemove', handleDrag);
+                document.addEventListener('mouseup', () => isDragging = false);
                 
                 isSpaceMode = true;
                 
+                // Add this to your remixSpace click handler after showing the divider
+                const dragGuide = document.getElementById('dragGuide');
+                dragGuide.style.display = 'block';
+                setTimeout(() => {
+                    dragGuide.style.opacity = '1';
+                    setTimeout(() => {
+                        dragGuide.style.opacity = '0';
+                        setTimeout(() => {
+                            dragGuide.style.display = 'none';
+                        }, 500);
+                    }, 2000);
+                }, 100);
             } catch (err) {
                 console.error('Webcam error:', err);
             }
         });
+
+        function startDragging() {
+            isDragging = true;
+        }
+
+        function handleDrag(e) {
+            if (!isDragging || !isSpaceMode) return;
+            
+            dividerPosition = (e.clientX / window.innerWidth) * 100;
+            dividerPosition = Math.max(20, Math.min(80, dividerPosition));
+            
+            const glCanvas = document.getElementById('glCanvas');
+            const divider = document.getElementById('videosDivider');
+            const webcamContainer = document.getElementById('webcamContainer');
+            
+            // Update WebGL canvas
+            glCanvas.style.width = `${dividerPosition}%`;
+            glCanvas.width = Math.floor(window.innerWidth * (dividerPosition / 100));
+            gl.viewport(0, 0, glCanvas.width, glCanvas.height);
+            
+            // Update webcam container
+            webcamContainer.style.width = `${100 - dividerPosition}%`;
+            
+            // Update divider position
+            divider.style.left = `${dividerPosition}%`;
+        }
 
         document.getElementById('remixTime').addEventListener('click', async () => {
             console.log('Remix Time clicked');
