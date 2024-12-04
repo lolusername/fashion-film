@@ -19,13 +19,11 @@
             pointer-events: none;
             width: 100%;
             mix-blend-mode: difference;
-            /* This inverts the colors underneath */
         }
 
         .intro-text {
             font-family: 'Bodoni Moda', serif;
             color: white;
-            /* Keep white as base color for difference blend */
             font-size: clamp(1rem, 6vw, 6rem);
             line-height: 0.9;
             font-weight: 700;
@@ -35,10 +33,8 @@
             margin: 0;
             padding: 0;
             opacity: 0;
-            /* Remove previous mix-blend-mode from individual texts */
         }
 
-        /* Remove the text shadow effect since it would interfere with inversion */
         .intro-text::after {
             display: none;
         }
@@ -56,17 +52,9 @@
         }
 
         @keyframes fadeOut {
-            0% {
-                opacity: 1;
-            }
-
-            80% {
-                opacity: 1;
-            }
-
-            100% {
-                opacity: 0;
-            }
+            0% { opacity: 1; }
+            80% { opacity: 1; }
+            100% { opacity: 0; }
         }
 
         @keyframes slideIn {
@@ -74,27 +62,15 @@
                 opacity: 0;
                 transform: translateX(-5%);
             }
-
             100% {
                 opacity: 1;
                 transform: translateX(0);
             }
         }
 
-        /* Add dramatic hover effect even though it's brief */
         .intro-text:hover {
             transform: scale(1.02);
             transition: transform 0.3s ease;
-        }
-
-        /* Add subtle text shadow for depth */
-        .intro-text::after {
-            content: attr(data-text);
-            position: absolute;
-            left: 0.5rem;
-            top: 0.5rem;
-            color: rgba(255, 255, 255, 0.1);
-            z-index: -1;
         }
 
         body {
@@ -110,76 +86,6 @@
             width: 50% !important;
             height: 100%;
             z-index: 1;
-        }
-
-        .audio-controls {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            z-index: 9999;
-        }
-
-        .audio-btn {
-            background: transparent;
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            color: white;
-            padding: 12px 24px;
-            font-size: 10px;
-            letter-spacing: 3px;
-            text-transform: uppercase;
-            cursor: pointer;
-            transition: all 0.6s ease;
-            backdrop-filter: blur(5px);
-            font-weight: 300;
-            min-width: 180px;
-        }
-
-        .video-controls {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            background: rgba(0, 0, 0, 0.7);
-            padding: 10px;
-            z-index: 9999;
-            color: white;
-            font-family: monospace;
-        }
-
-        .control-bar {
-            width: 100px;
-            height: 4px;
-            background: #333;
-            margin: 5px 0;
-            cursor: pointer;
-        }
-
-        .control-bar-fill {
-            height: 100%;
-            background: white;
-            width: 50%;
-        }
-
-        /* Add to your CSS */
-        .custom-upload {
-            position: fixed;
-            bottom: 10px;
-            left: 10px;
-            z-index: 9999;
-        }
-
-        .custom-upload label {
-            color: rgba(255, 255, 255, 0.15);
-            font-size: 20px;
-            cursor: pointer;
-            transition: color 0.3s ease;
-            user-select: none;
-        }
-
-        .custom-upload label:hover {
-            color: rgba(255, 255, 255, 0.3);
         }
 
         .mode-selection {
@@ -226,45 +132,64 @@
             object-fit: cover;
             transform: scaleX(-1);
         }
+
+        .capture-btn-container {
+            position: fixed;
+            bottom: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 10002;
+            opacity: 0;
+            transition: opacity 0.5s ease;
+        }
+
+        .capture-btn {
+            background: rgba(0, 0, 0, 0.3);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: white;
+            padding: 15px 30px;
+            border-radius: 50px;
+            font-family: 'Bodoni Moda', serif;
+            font-size: 14px;
+            letter-spacing: 3px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .capture-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.4);
+            transform: scale(1.05);
+        }
+
+        .capture-icon {
+            font-size: 20px;
+            color: #ff3366;
+        }
+
+        .capture-text {
+            transform: translateY(1px);
+        }
     </style>
 </head>
 
 <body>
     <canvas id="glCanvas"></canvas>
-    <!-- Add to your HTML body -->
     <div class="intro-banner">
         <div class="intro-text">FILM</div>
         <div class="intro-text">FASHION</div>
         <div class="intro-text">MONTAGE</div>
     </div>
 
-    <div class="audio-controls">
-        <button id="startAudio" class="audio-btn">Connect Audio</button>
-        <button id="stopAudio" class="audio-btn" style="display: none;">Disconnect</button>
-        <button id="startMic" class="audio-btn audio-btn-small">Use Microphone</button>
-        <button id="stopMic" class="audio-btn audio-btn-small" style="display: none;">Stop Microphone</button>
-    </div>
-    <!-- Add to your HTML -->
-    <div class="custom-upload">
-        <input type="file" id="mediaUpload" multiple accept="video/*,image/*" style="display: none;">
-        <label for="mediaUpload">new media</label>
-    </div>
-
-    <div class="video-controls">
-        <div>
-            <span>COLOR TEMP</span>
-            <span class="temp-value">50%</span>
-            <div class="control-bar temp-bar">
-                <div class="control-bar-fill temp-fill"></div>
-            </div>
-        </div>
-        <div>
-            <span>CONTRAST</span>
-            <span class="contrast-value">50%</span>
-            <div class="control-bar contrast-bar">
-                <div class="control-bar-fill contrast-fill"></div>
-            </div>
-        </div>
+    <div class="capture-btn-container">
+        <button id="captureBtn" class="capture-btn">
+            <span class="capture-icon">◉</span>
+            <span class="capture-text">CAPTURE MOMENT</span>
+        </button>
     </div>
 
     <div class="mode-selection">
@@ -272,11 +197,18 @@
         <button class="mode-btn" id="remixTime">REMIX TIME</button>
     </div>
 
-    <div id="webcamContainer" style="display: none;">
-        <video id="webcamVideo" autoplay playsinline style="display: none;"></video>
+    <div id="spaceOptions" style="display: none;" class="mode-selection">
+        <button class="mode-btn" id="useWebcamSpace">USE WEBCAM</button>
+        <button class="mode-btn" id="uploadVideoSpace">UPLOAD VIDEO</button>
+        <input type="file" id="mediaUpload" accept="video/*,image/*" style="display: none;">
+    </div>
+
+    <div id="webcamContainer">
+        <video id="webcamVideo" autoplay playsinline></video>
     </div>
 
     <script src="script.js"></script>
+    <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
 </body>
 
 </html>

@@ -59,18 +59,41 @@
   
     // Functional helper to create and configure a video element
     const createVideoElement = (src) => {
-      const video = document.createElement('video');
-      video.src = src;
-      video.crossOrigin = 'anonymous';
-      video.loop = true;
-      video.muted = true;
-      video.autoplay = true;
-      video.playsInline = true;
-      document.body.appendChild(video);
-      
-      console.log('Created video element with src:', src);
-      
-      return video;
+        const video = document.createElement('video');
+        video.src = src;
+        video.crossOrigin = 'anonymous';
+        video.loop = true;
+        video.muted = true;
+        video.autoplay = true;
+        video.playsInline = true;
+        
+        // Style for display - ensure full coverage
+        video.style.width = '100%';
+        video.style.height = '100%';
+        video.style.objectFit = 'cover'; // This ensures no black gaps
+        video.style.position = 'absolute';
+        video.style.top = '0';
+        video.style.left = '0';
+        
+        document.body.appendChild(video);
+        
+        // Add resize handler
+        const resizeVideo = () => {
+            const container = video.parentElement;
+            const containerWidth = container.clientWidth;
+            const containerHeight = container.clientHeight;
+            
+            // Always fill container completely
+            video.style.width = '100%';
+            video.style.height = '100%';
+            video.style.objectFit = 'cover';
+        };
+        
+        // Call on load and window resize
+        video.addEventListener('loadedmetadata', resizeVideo);
+        window.addEventListener('resize', resizeVideo);
+        
+        return video;
     };
   
     // Main function to initialize and run the application
@@ -157,69 +180,9 @@
         }
       };
   
-      // Modified audio capture button listeners
-      document.getElementById('startAudio').addEventListener('click', async () => {
-        try {
-            // Clean up existing connections first
-            if (sourceNode) {
-                safeDisconnectNode(sourceNode);
-                sourceNode = null;
-            }
-            if (analyserNode) {
-                safeDisconnectNode(analyserNode);
-                analyserNode = null;
-            }
-
-            // Create new analyzer
-            analyserNode = audioContext.createAnalyser();
-            analyserNode.fftSize = 256;
-
-            const stream = await navigator.mediaDevices.getDisplayMedia({ 
-                video: true,
-                audio: true 
-            });
-            
-            const audioTrack = stream.getAudioTracks()[0];
-            if (audioTrack) {
-                audioStream = new MediaStream([audioTrack]);
-                sourceNode = audioContext.createMediaStreamSource(audioStream);
-                sourceNode.connect(analyserNode);
-                
-                document.getElementById('startAudio').style.display = 'none';
-                document.getElementById('stopAudio').style.display = 'block';
-            }
-            
-            stream.getVideoTracks().forEach(track => track.stop());
-            
-        } catch (error) {
-            console.error('Error starting audio capture:', error);
-            // Reset nodes on error
-            sourceNode = null;
-            analyserNode = null;
-            document.getElementById('startAudio').style.display = 'block';
-            document.getElementById('stopAudio').style.display = 'none';
-        }
-        updateControlsVisibility();
-      });
   
       // Modified stop audio handler
-      document.getElementById('stopAudio').addEventListener('click', () => {
-        if (audioStream) {
-            audioStream.getTracks().forEach(track => track.stop());
-            audioStream = null;
-        }
-        
-        safeDisconnectNode(sourceNode);
-        sourceNode = null;
-        
-        safeDisconnectNode(analyserNode);
-        analyserNode = null;
-        
-        document.getElementById('startAudio').style.display = 'block';
-        document.getElementById('stopAudio').style.display = 'none';
-        updateControlsVisibility();
-      });
-  
+   
       // Add shader sources here
       const vertexShaderSource = `
           attribute vec2 a_position;
@@ -385,21 +348,7 @@
           mouse.lastTime = currentTime;
 
           // Update UI to reflect cursor position
-          if (!audioStream) {
-              // Update temperature bar (mouse.x)
-              const tempFill = document.querySelector('.temp-fill');
-              const tempValue = document.querySelector('.temp-value');
-              const tempPercentage = Math.round(mouse.x * 100);
-              tempFill.style.width = `${tempPercentage}%`;
-              tempValue.textContent = `${tempPercentage}%`;
-
-              // Update contrast bar (mouse.y)
-              const contrastFill = document.querySelector('.contrast-fill');
-              const contrastValue = document.querySelector('.contrast-value');
-              const contrastPercentage = Math.round(mouse.y * 100);
-              contrastFill.style.width = `${contrastPercentage}%`;
-              contrastValue.textContent = `${contrastPercentage}%`;
-          }
+        
       });
 
       canvas.addEventListener('click', (e) => {
@@ -425,36 +374,44 @@
       // Add at the top with your other variables
       let audioFrequency = 0;  // Default value when no audio
 
-      // NOW define the render function
-      const render = (timestamp) => {
-          if (!startTime) startTime = timestamp;
-          
-          // Set viewport based on mode
-          if (isSpaceMode) {
-              gl.viewport(0, 0, gl.canvas.width / 2, gl.canvas.height);
-          } else {
-              gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+      // Add this variable at the top with your other declarations
+      let lastRenderTime = 0;
+      const FRAME_RATE = 30; // Limit to 30 FPS
+      const FRAME_INTERVAL = 1000 / FRAME_RATE;
+
+      // Modify your render function
+      function render(currentTime) {
+          if (!lastRenderTime || currentTime - lastRenderTime >= FRAME_INTERVAL) {
+              lastRenderTime = currentTime;
+              
+              // Set viewport based on mode
+              if (isSpaceMode) {
+                  gl.viewport(0, 0, gl.canvas.width / 2, gl.canvas.height);
+              } else {
+                  gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+              }
+              
+              gl.clear(gl.COLOR_BUFFER_BIT);
+              
+              // Update uniforms
+              gl.uniform2f(resolutionLocation, isSpaceMode ? gl.canvas.width / 2 : gl.canvas.width, gl.canvas.height);
+              gl.uniform1i(isSpaceModeLocation, isSpaceMode ? 1 : 0);
+              
+              if (video.readyState >= video.HAVE_METADATA) {
+                  gl.uniform2f(mediaSizeLocation, video.videoWidth, video.videoHeight);
+              }
+              
+              // Draw
+              if (mediaSources[currentVideoIndex]?.type === 'video' && video.readyState >= video.HAVE_CURRENT_DATA) {
+                  gl.bindTexture(gl.TEXTURE_2D, videoTexture);
+                  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);
+              }
+              
+              gl.drawArrays(gl.TRIANGLES, 0, 6);
           }
           
-          gl.clear(gl.COLOR_BUFFER_BIT);
-          
-          // Update uniforms
-          gl.uniform2f(resolutionLocation, isSpaceMode ? gl.canvas.width / 2 : gl.canvas.width, gl.canvas.height);
-          gl.uniform1i(isSpaceModeLocation, isSpaceMode ? 1 : 0);
-          
-          if (video.readyState >= video.HAVE_METADATA) {
-              gl.uniform2f(mediaSizeLocation, video.videoWidth, video.videoHeight);
-          }
-          
-          // Draw
-          if (mediaSources[currentVideoIndex]?.type === 'video' && video.readyState >= video.HAVE_CURRENT_DATA) {
-              gl.bindTexture(gl.TEXTURE_2D, videoTexture);
-              gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);
-          }
-          
-          gl.drawArrays(gl.TRIANGLES, 0, 6);
           requestAnimationFrame(render);
-      };
+      }
 
       // Start render loop
       requestAnimationFrame(render);
@@ -502,13 +459,9 @@
       const tempValue = document.querySelector('.temp-value');
       const contrastValue = document.querySelector('.contrast-value');
 
-      // Show/hide controls based on audio connection
-      const updateControlsVisibility = () => {
-          videoControls.style.display = audioStream ? 'none' : 'block';
-      };
 
       // Update initial visibility
-      updateControlsVisibility();
+   
 
       // Handle control bar clicks
       const handleBarClick = (e, bar, fill, value, isTemp) => {
@@ -526,17 +479,9 @@
           }
       };
 
-      tempBar.addEventListener('click', (e) => {
-          if (!audioStream) {
-              handleBarClick(e, tempBar, tempBar.querySelector('.temp-fill'), tempValue, true);
-          }
-      });
+  
 
-      contrastBar.addEventListener('click', (e) => {
-          if (!audioStream) {
-              handleBarClick(e, contrastBar, contrastBar.querySelector('.contrast-fill'), contrastValue, false);
-          }
-      });
+  
 
       // Add to your JavaScript initialization
       const mediaUpload = document.getElementById('mediaUpload');
@@ -902,6 +847,16 @@
                 document.getElementById('webcamContainer').style.display = 'block';
                 document.getElementById('timeOptions').style.display = 'none';
                 
+                // Full screen setup for time mode
+                const container = document.getElementById('webcamContainer');
+                container.style.width = '100%';
+                container.style.height = '100%';
+                container.style.right = '0';
+                container.style.mixBlendMode = 'soft-light';
+                
+                // Hide divider in time mode
+                document.getElementById('videosDivider').style.display = 'none';
+                
                 isTimeMode = true;
                 isSpaceMode = false;
                 
@@ -927,12 +882,120 @@
                 document.getElementById('webcamContainer').style.display = 'block';
                 document.getElementById('timeOptions').style.display = 'none';
                 
+                // Full screen setup for time mode
+                const container = document.getElementById('webcamContainer');
+                container.style.width = '100%';
+                container.style.height = '100%';
+                container.style.right = '0';
+                container.style.mixBlendMode = 'soft-light';
+                
+                // Hide divider in time mode
+                document.getElementById('videosDivider').style.display = 'none';
+                
                 isTimeMode = true;
                 isSpaceMode = false;
                 
                 startTimeOverlay();
             }
         });
+
+        // Add capture button and functionality
+        const captureBtn = document.createElement('button');
+        captureBtn.id = 'captureBtn';
+        captureBtn.innerHTML = `
+            <span style="font-family: 'Bodoni Moda', serif; letter-spacing: 3px;">CAPTURE</span>
+        `;
+        captureBtn.style.cssText = `
+            position: fixed;
+            bottom: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.2);
+            backdrop-filter: blur(10px);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            padding: 15px 35px;
+            border-radius: 30px;
+            font-family: 'Bodoni Moda', serif;
+            font-size: 14px;
+            letter-spacing: 3px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            opacity: 0;
+            z-index: 10002;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            display: none;
+        `;
+
+        // Add hover effects
+        captureBtn.onmouseenter = () => {
+            captureBtn.style.background = 'rgba(255, 255, 255, 0.1)';
+            captureBtn.style.transform = 'translateX(-50%) scale(1.05)';
+            captureBtn.style.letterSpacing = '4px';
+        };
+
+        captureBtn.onmouseleave = () => {
+            captureBtn.style.background = 'rgba(0, 0, 0, 0.2)';
+            captureBtn.style.transform = 'translateX(-50%) scale(1)';
+            captureBtn.style.letterSpacing = '3px';
+        };
+
+        // Show button when modes are selected
+        document.getElementById('remixSpace').addEventListener('click', () => {
+            captureBtn.style.display = 'block';
+            setTimeout(() => {
+                captureBtn.style.opacity = '1';
+            }, 1000);
+        });
+
+        document.getElementById('remixTime').addEventListener('click', () => {
+            captureBtn.style.display = 'block';
+            setTimeout(() => {
+                captureBtn.style.opacity = '1';
+            }, 1000);
+        });
+
+        // Capture functionality remains the same
+        captureBtn.onclick = async function() {
+            try {
+                captureBtn.style.opacity = '0';
+                await new Promise(resolve => setTimeout(resolve, 100));
+                
+                const stream = await navigator.mediaDevices.getDisplayMedia({
+                    preferCurrentTab: true,
+                    video: {
+                        displaySurface: "browser",
+                    }
+                });
+                
+                const video = document.createElement('video');
+                video.srcObject = stream;
+                await video.play();
+                
+                const canvas = document.createElement('canvas');
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(video, 0, 0);
+                
+                stream.getTracks().forEach(track => track.stop());
+                
+                const link = document.createElement('a');
+                link.download = `fashion-montage-${Date.now()}.jpg`;
+                link.href = canvas.toDataURL('image/jpeg', 1.0);
+                link.click();
+                
+                captureBtn.style.opacity = '1';
+            } catch (err) {
+                console.error('Capture failed:', err);
+                alert('Capture failed. Please try again.');
+                captureBtn.style.opacity = '1';
+            }
+        };
+
+        // Add button to document
+        document.body.appendChild(captureBtn);
     });
 
     // Add window resize handler
@@ -953,50 +1016,43 @@
     function startTimeOverlay() {
         let startTime = performance.now();
         let randomOffset = 0;
+        let lastEffectTime = performance.now();
+        const FRAME_INTERVAL = 1000 / 30; // 30fps
 
-        function updateTimeEffect() {
+        function updateTimeEffect(currentTime) {
             if (!isTimeMode) return;
             
-            const time = performance.now() - startTime;
-            const base = Math.sin(time * 0.0002 * Math.PI / 2);
-            const secondary = Math.cos(time * 0.0001 * Math.PI / 2);
-            
-            // Create dreamy compound wave
-            const dreamyWave = (base * 0.7 + secondary * 0.3);
-            
-            if (base < -0.95) randomOffset = Math.random() * 0.15;
-            
-            const opacity = Math.max(0.1, Math.min(0.75, (dreamyWave + 1) * 0.35 + randomOffset));
-            
-            if (webcamVideo && document.getElementById('webcamContainer')) {
-                const container = document.getElementById('webcamContainer');
-                container.style.width = '100%';
-                container.style.height = '100%';
-                container.style.right = '0';
-                container.style.opacity = opacity.toString();
+            if (currentTime - lastEffectTime >= FRAME_INTERVAL) {
+                lastEffectTime = currentTime;
+                const time = performance.now() - startTime;
+                const base = Math.sin(time * 0.0002 * Math.PI / 2);
+                const secondary = Math.cos(time * 0.0001 * Math.PI / 2);
                 
-                // Cycle through blend modes
-                const blendModes = ['soft-light', 'overlay', 'screen'];
-                const blendIndex = Math.floor((time * 0.001) % blendModes.length);
-                container.style.mixBlendMode = blendModes[blendIndex];
+                // Create dreamy compound wave
+                const dreamyWave = (base * 0.7 + secondary * 0.3);
                 
-                // Dynamic blur effect
-                const blurAmount = (1 - opacity) * 5;
-                container.style.filter = `blur(${blurAmount}px) brightness(1.1)`;
+                if (base < -0.95) randomOffset = Math.random() * 0.15;
                 
-                // Subtle scale breathing animation
-                const scale = 1 + Math.sin(time * 0.0003) * 0.05;
-                webcamVideo.style.transform = `scaleX(-1) scale(${scale})`;
-                webcamVideo.style.transition = 'transform 0.5s ease-out';
+                const opacity = Math.max(0.1, Math.min(0.75, (dreamyWave + 1) * 0.35 + randomOffset));
                 
-                // Add subtle position drift
-                const drift = Math.sin(time * 0.0001) * 2;
-                container.style.transform = `translateX(${drift}px)`;
-                container.style.transition = 'transform 1s ease-out';
-                
-                // Hide the divider in time mode
-                const divider = document.getElementById('videosDivider');
-                if (divider) divider.style.display = 'none';
+                if (webcamVideo && document.getElementById('webcamContainer')) {
+                    const container = document.getElementById('webcamContainer');
+                    container.style.opacity = opacity.toString();
+                    
+                    // Cycle through blend modes
+                    const blendModes = ['soft-light', 'overlay', 'screen'];
+                    const blendIndex = Math.floor((time * 0.001) % blendModes.length);
+                    container.style.mixBlendMode = blendModes[blendIndex];
+                    
+                    // Dynamic blur effect
+                    const blurAmount = (1 - opacity) * 5;
+                    container.style.filter = `blur(${blurAmount}px) brightness(1.1)`;
+                    
+                    // Subtle scale breathing animation
+                    const scale = 1 + Math.sin(time * 0.0003) * 0.05;
+                    webcamVideo.style.transform = `scaleX(-1) scale(${scale})`;
+                    webcamVideo.style.transition = 'transform 0.5s ease-out';
+                }
             }
             
             requestAnimationFrame(updateTimeEffect);
@@ -1010,42 +1066,45 @@
         let startTime = performance.now();
         let randomOffset = 0;
 
-        function updateDyptich() {
+        function updateDyptich(currentTime) {
             if (!isSpaceMode) return;
             
-            const time = performance.now() - startTime;
-            const base = Math.sin(time * 0.0002 * Math.PI / 2);
-            const secondary = Math.cos(time * 0.0001 * Math.PI / 2);
-            
-            // Create dreamy compound wave
-            const dreamyWave = (base * 0.7 + secondary * 0.3);
-            
-            if (base < -0.95) randomOffset = Math.random() * 0.15;
-            
-            const opacity = Math.max(0.1, Math.min(0.75, (dreamyWave + 1) * 0.35 + randomOffset));
-            
-            if (webcamVideo && document.getElementById('webcamContainer')) {
-                const container = document.getElementById('webcamContainer');
-                container.style.opacity = opacity.toString();
+            if (currentTime - lastEffectTime >= FRAME_INTERVAL) {
+                lastEffectTime = currentTime;
+                const time = performance.now() - startTime;
+                const base = Math.sin(time * 0.0002 * Math.PI / 2);
+                const secondary = Math.cos(time * 0.0001 * Math.PI / 2);
                 
-                // Cycle through blend modes
-                const blendModes = ['soft-light', 'overlay', 'screen'];
-                const blendIndex = Math.floor((time * 0.001) % blendModes.length);
-                container.style.mixBlendMode = blendModes[blendIndex];
+                // Create dreamy compound wave
+                const dreamyWave = (base * 0.7 + secondary * 0.3);
                 
-                // Dynamic blur effect
-                const blurAmount = (1 - opacity) * 5;
-                container.style.filter = `blur(${blurAmount}px) brightness(1.1)`;
+                if (base < -0.95) randomOffset = Math.random() * 0.15;
                 
-                // Subtle scale breathing animation
-                const scale = 1 + Math.sin(time * 0.0003) * 0.05;
-                webcamVideo.style.transform = `scaleX(-1) scale(${scale})`;
-                webcamVideo.style.transition = 'transform 0.5s ease-out';
+                const opacity = Math.max(0.1, Math.min(0.75, (dreamyWave + 1) * 0.35 + randomOffset));
                 
-                // Add subtle position drift
-                const drift = Math.sin(time * 0.0001) * 2;
-                container.style.transform = `translateX(${drift}px)`;
-                container.style.transition = 'transform 1s ease-out';
+                if (webcamVideo && document.getElementById('webcamContainer')) {
+                    const container = document.getElementById('webcamContainer');
+                    container.style.opacity = opacity.toString();
+                    
+                    // Cycle through blend modes
+                    const blendModes = ['soft-light', 'overlay', 'screen'];
+                    const blendIndex = Math.floor((time * 0.001) % blendModes.length);
+                    container.style.mixBlendMode = blendModes[blendIndex];
+                    
+                    // Dynamic blur effect
+                    const blurAmount = (1 - opacity) * 5;
+                    container.style.filter = `blur(${blurAmount}px) brightness(1.1)`;
+                    
+                    // Subtle scale breathing animation
+                    const scale = 1 + Math.sin(time * 0.0003) * 0.05;
+                    webcamVideo.style.transform = `scaleX(-1) scale(${scale})`;
+                    webcamVideo.style.transition = 'transform 0.5s ease-out';
+                    
+                    // Add subtle position drift
+                    const drift = Math.sin(time * 0.0001) * 2;
+                    container.style.transform = `translateX(${drift}px)`;
+                    container.style.transition = 'transform 1s ease-out';
+                }
             }
             
             requestAnimationFrame(updateDyptich);
@@ -1112,4 +1171,56 @@
     document.addEventListener('mouseup', () => {
         isDragging = false;
     });
+
+    // Add this function
+    function cleanupTextures() {
+        if (videoTexture) {
+            gl.deleteTexture(videoTexture);
+        }
+        if (webcamTexture) {
+            gl.deleteTexture(webcamTexture);
+        }
+    }
+
+    // Call it when switching modes or cleaning up
+    // Add to relevant event handlers
   })();
+
+// Add this function to handle video resizing
+const resizeVideo = (video) => {
+    if (!video) return;
+    
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    const videoAspect = video.videoWidth / video.videoHeight;
+    const viewportAspect = viewportWidth / viewportHeight;
+    
+    // Update video dimensions
+    video.width = viewportWidth;
+    video.height = viewportHeight;
+    
+    if (videoAspect > viewportAspect) {
+        video.style.height = '100%';
+        video.style.width = 'auto';
+    } else {
+        video.style.width = '100%';
+        video.style.height = 'auto';
+    }
+};
+
+// Add resize event listener
+window.addEventListener('resize', () => {
+    // Resize main video
+    const videos = document.getElementsByTagName('video');
+    Array.from(videos).forEach(video => resizeVideo(video));
+    
+    // Update canvas size if needed
+    const canvas = document.getElementById('glCanvas');
+    if (canvas) {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        if (gl) {
+            gl.viewport(0, 0, canvas.width, canvas.height);
+        }
+    }
+});
