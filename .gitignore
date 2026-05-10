@@ -6,6 +6,9 @@ node_modules/
 dist/
 build/
 .vite/
+package-lock.json
+*CNAME*
+
 
 # Local environment variables
 .env
@@ -52,3 +55,4 @@ test-results/
 # Cache
 .cache/
 .eslintcache
+
